@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: basic-gradle-build-
+spec:
+  entrypoint: basic-gradle-build
+  arguments:
+    parameters:
+    - name: repo
+      value: https://github.com/SonarSource/sonar-dummy-oss.git
+    - name: revision
+      value: master
+
+  templates:
+  - name: basic-gradle-build
+    steps:
+    - - name: build
+        template: build
+  - name: build
+    inputs:
+      artifacts:
+      - name: source
+        path: /workspace
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+    container:
+      image: openjdk:8u171-jdk
+      command: [sh, -c]
+      args: ["
+        cd /workspace &&
+        ./gradlew build --no-daemon
+      "]

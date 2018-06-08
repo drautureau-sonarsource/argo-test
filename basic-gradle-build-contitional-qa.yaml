@@ -1,0 +1,75 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: basic-gradle-build-qa-
+spec:
+  entrypoint: basic-gradle-build-qa
+  arguments:
+    parameters:
+    - name: repo
+      value: https://github.com/SonarSource/sonar-go.git
+    - name: revision
+      value: master
+    - name: qa
+      value: false
+  volumeClaimTemplates:
+  - metadata:
+      name: workdir
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+
+  templates:
+  - name: basic-gradle-build-qa
+    steps:
+    - - name: build
+        template: gradle
+        arguments:
+          parameters:
+          - name: task
+            value: build
+    - - name: checkVolumeAfterBuild
+        template: check
+    - - name: qa
+        template: gradle
+        when: "{{workflow.parameters.qa}} == true"
+        arguments:
+          parameters:
+          - name: task
+            value: integrationTest
+    - - name: checkVolumeAfterQA
+        template: check
+
+  - name: check
+    container:
+      image: openjdk:8u171-jdk
+      command: [sh, -c]
+      args: ["
+        cd /workspace &&
+        ls -R
+      "]
+      volumeMounts:
+      - name: workdir
+        mountPath: /workspace
+  - name: gradle
+    inputs:
+      parameters:
+      - name: task
+      artifacts:
+      - name: source
+        path: /workspace
+        git:
+          repo: "{{workflow.parameters.repo}}"
+          revision: "{{workflow.parameters.revision}}"
+    container:
+      image: openjdk:8u171-jdk
+      command: [sh, -c]
+      args: ["
+        cd /workspace &&
+        ./gradlew {{inputs.parameters.task}} --no-daemon
+      "]
+      volumeMounts:
+      - name: workdir
+        mountPath: /workspace
