@@ -26,6 +26,56 @@ On Linux: `curl -sSL -o /usr/local/bin/argo https://github.com/argoproj/argo/rel
 
 `minikube service -n kube-system --url argo-ui`
 
+# Artifacts repository (Minio)
+
+We need a repository for artifacts in order to donwload the sources and to share them between the different steps of a workflow.
+
+## Prerequisites
+
+[Helm](https://docs.helm.sh/using_helm/)
+
+## install Minio
+
+```
+helm init
+helm install stable/minio --name argo-artifacts --set service.type=LoadBalancer
+```
+
+## Reconfigure the workflow controller to use the Minio artifact repository
+
+Edit the workflow-controller config map to reference the service name (argo-artifacts-minio) and secret (argo-artifacts-minio) created by the helm install:
+
+`kubectl edit configmap workflow-controller-configmap -n kube-system`
+
+```
+...
+    executorImage: argoproj/argoexec:v2.1.1
+    artifactRepository:
+      s3:
+        bucket: my-bucket
+        endpoint: argo-artifacts-minio.default:9000
+        insecure: true
+        # accessKeySecret and secretKeySecret are secret selectors.
+        # It references the k8s secret named 'argo-artifacts-minio'
+        # which was created during the minio helm install. The keys,
+        # 'accesskey' and 'secretkey', inside that secret are where the
+        # actual minio credentials are stored.
+        accessKeySecret:
+          name: argo-artifacts-minio
+          key: accesskey
+        secretKeySecret:
+          name: argo-artifacts-minio
+          key: secretkey
+```
+
+## Minio UI
+
+`minikube service --url argo-artifacts-minio`
+
+AccessKey: `AKIAIOSFODNN7EXAMPLE`
+
+SecretKey: `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`
+
 # Basic worflow definition to build
 
 the worflow definition `submit basic-gradle-build.yaml` gets 2 parameters as input:
@@ -69,11 +119,29 @@ Creating optimized production build...
 
 # Basic worflow definition to build and conditionally (using a parameter) run QA
 
-Run the same container definition (gradle) but with different commands `./gradlew build` for build and `./gradlew integration`
-
-Artifacts are shared between containers (TODO).
+Tests reports are archived in a Minio bucket.
 
 By default it checkout the `master` branch of `https://github.com/SonarSource/sonar-go.git`
+
+## Limitations: sharing gradle project cache dir and sources between build and QA steps with a volume (Gradle specific)
+
+[K8s created volumes in container with root ownership and stric permissions](https://github.com/kubernetes/kubernetes/issues/2630)
+
+SQ (specificaly ES) cannot run with root user. So we cannot run tests with the default user of openjdk images
+
+Gradle run with user `gradle` and then cannot:
+* initiate the project (`<project root dir>/.`). Workaound is to use the CLI option `--project-cache-dir=<other dir>`
+* write in the volume
+
+Then we have to send artifacts to Artifactory in the build step and retrieve them in QA step.
+
+As an other consequence of the permission on volume permission (and then artifacts management by Argo) and that we cannot run QA with root user, we have to checkout the sources by our own in QA step.
+
+## Using Secrets to push to Artifactory
+
+Create a new secret named artifactory with url=http://localhost:8081, repo=libs-snapshot-local, user=admin, password=admin APIkey=key:
+
+`kubectl create secret generic artifactory-push --from-literal=url=http://localhost:8081 --from-literal=repo=libs-snapshot-local --from-literal=user=admin --from-literal=password=admin --from-literal=APIkey=key`
 
 ## Build master branch of sonar-go
 

@@ -7,69 +7,88 @@ spec:
   arguments:
     parameters:
     - name: repo
-      value: https://github.com/SonarSource/sonar-go.git
+      value: sonar-go
     - name: revision
       value: master
+    - name: buildNumber
+      value: 0
     - name: qa
       value: false
-  volumeClaimTemplates:
-  - metadata:
-      name: workdir
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      resources:
-        requests:
-          storage: 1Gi
+  volumes:
+  - name: artifactory
+    secret:
+      secretName: artifactory
 
   templates:
   - name: basic-gradle-build-qa
     steps:
     - - name: build
-        template: gradle
-        arguments:
-          parameters:
-          - name: task
-            value: build
-    - - name: checkVolumeAfterBuild
-        template: check
+        template: build
     - - name: qa
-        template: gradle
+        template: run-ITs
         when: "{{workflow.parameters.qa}} == true"
-        arguments:
-          parameters:
-          - name: task
-            value: integrationTest
-    - - name: checkVolumeAfterQA
-        template: check
 
-  - name: check
-    container:
-      image: openjdk:8u171-jdk
-      command: [sh, -c]
-      args: ["
-        cd /workspace &&
-        ls -R
-      "]
-      volumeMounts:
-      - name: workdir
-        mountPath: /workspace
-  - name: gradle
+  - name: build
     inputs:
-      parameters:
-      - name: task
-      artifacts:
+      artifacts: # Argo way to checkout a git repo (use volume behind)
       - name: source
-        path: /workspace
+        path: /workspace/src
         git:
-          repo: "{{workflow.parameters.repo}}"
+          repo: "https://github.com/SonarSource/{{workflow.parameters.repo}}.git"
           revision: "{{workflow.parameters.revision}}"
     container:
       image: openjdk:8u171-jdk
       command: [sh, -c]
       args: ["
-        cd /workspace &&
-        ./gradlew {{inputs.parameters.task}} --no-daemon
+        cd /workspace/src &&
+        ./gradlew build artifactoryPublish -DbuildNumber={{workflow.parameters.buildNumber}} --no-daemon --console plain
       "]
+      env:
+      - name: ARTIFACTORY_URL
+        valueFrom:
+          secretKeyRef:
+            name: artifactory
+            key: url
+      - name: ARTIFACTORY_DEPLOY_REPO
+        valueFrom:
+          secretKeyRef:
+            name: artifactory
+            key: repo
+      - name: ARTIFACTORY_DEPLOY_USERNAME
+        valueFrom:
+          secretKeyRef:
+            name: artifactory
+            key: user
+      - name: ARTIFACTORY_DEPLOY_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: artifactory
+            key: password
       volumeMounts:
-      - name: workdir
-        mountPath: /workspace
+      - name: artifactory
+        mountPath: "/home/gradle/secrets/artifactory"
+  - name: run-ITs
+    container:
+      image: gradle:4.5.1-jdk8 # Need to use an image that run commands as non root (mandatory by SQ (ES requirement))
+      command: [sh, -c]
+      args: ["
+        git clone --depth 1 https://github.com/SonarSource/{{workflow.parameters.repo}}.git &&
+        cd {{workflow.parameters.repo}} &&
+        git checkout {{workflow.parameters.revision}} &&
+        ./gradlew integrationTest -DbuildNumber={{workflow.parameters.buildNumber}} -Dorchestrator.artifactory.apiKey=$ARTIFACTORY_PRIVATE_API_KEY --no-daemon
+      "] # Checkout the sources, cannot use a volume because it is mounted as root
+      env:
+      - name: ARTIFACTORY_PRIVATE_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: artifactory
+            key: APIkey
+      volumeMounts:
+      - name: artifactory
+        mountPath: "/home/gradle/secrets/artifactory"
+    outputs:
+      artifacts:
+      - name: tests-report
+        path: /home/gradle/{{workflow.parameters.repo}}/its/plugin/tests/build/reports/tests/integrationTest
+      - name: sq-instances
+        path: /home/gradle/{{workflow.parameters.repo}}/its/plugin/tests/target
