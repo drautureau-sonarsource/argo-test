@@ -43,6 +43,8 @@ helm init
 helm install stable/minio --name argo-artifacts --set service.type=LoadBalancer
 ```
 
+Create a bucket named `my-bucket` from the Minio UI.
+
 ## Reconfigure the workflow controller to use the Minio artifact repository
 
 Edit the workflow-controller config map to reference the service name (argo-artifacts-minio) and secret (argo-artifacts-minio) created by the helm install:
