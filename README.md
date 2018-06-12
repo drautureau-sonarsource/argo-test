@@ -24,6 +24,8 @@ On Linux: `curl -sSL -o /usr/local/bin/argo https://github.com/argoproj/argo/rel
 
 ### Launch UI
 
+`kubectl patch svc argo-ui -n kube-system -p '{"spec": {"type": "LoadBalancer"}}'`
+
 `minikube service -n kube-system --url argo-ui`
 
 # Artifacts repository (Minio)
