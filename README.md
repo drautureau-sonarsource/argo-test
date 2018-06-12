@@ -143,7 +143,7 @@ As an other consequence of the permission on volume permission (and then artifac
 
 Create a new secret named artifactory with url=http://localhost:8081, repo=libs-snapshot-local, user=admin, password=admin APIkey=key:
 
-`kubectl create secret generic artifactory-push --from-literal=url=http://localhost:8081 --from-literal=repo=libs-snapshot-local --from-literal=user=admin --from-literal=password=admin --from-literal=APIkey=key`
+`kubectl create secret generic artifactory --from-literal=url=http://localhost:8081 --from-literal=repo=libs-snapshot-local --from-literal=user=admin --from-literal=password=admin --from-literal=APIkey=key`
 
 ## Build master branch of sonar-go
 
