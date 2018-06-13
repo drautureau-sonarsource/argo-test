@@ -21,12 +21,22 @@ spec:
 
   templates:
   - name: basic-gradle-build-qa
-    steps:
-    - - name: build
+    dag:
+      tasks:
+      - name: build
         template: build
-    - - name: qa
+      - name: qa-dev
+        dependencies: [build]
         template: run-ITs
         when: "{{workflow.parameters.qa}} == true"
+        arguments:
+          parameters: [{name: sqRuntimeVersion, value: DEV}]
+      - name: qa-latest
+        dependencies: [build]
+        template: run-ITs
+        when: "{{workflow.parameters.qa}} == true"
+        arguments:
+          parameters: [{name: sqRuntimeVersion, value: LATEST_RELEASE}]
 
   - name: build
     inputs:
@@ -70,6 +80,9 @@ spec:
       - name: artifactory
         mountPath: "/home/gradle/secrets/artifactory"
   - name: run-ITs
+    inputs:
+      parameters:
+      - name: sqRuntimeVersion
     container:
       image: gradle:4.5.1-jdk8 # Need to use an image that run commands as non root (mandatory by SQ (ES requirement))
       command: [sh, -c]
@@ -77,7 +90,7 @@ spec:
         git clone --depth 1 https://github.com/SonarSource/{{workflow.parameters.repo}}.git &&
         cd {{workflow.parameters.repo}} &&
         git checkout {{workflow.parameters.revision}} &&
-        ./gradlew integrationTest -DbuildNumber={{workflow.parameters.buildNumber}} -Dorchestrator.artifactory.apiKey=$ARTIFACTORY_PRIVATE_API_KEY --no-daemon
+        ./gradlew integrationTest -Dsonar.runtimeVersion={{inputs.parameters.sqRuntimeVersion}} -DbuildNumber={{workflow.parameters.buildNumber}} -Dorchestrator.artifactory.apiKey=$ARTIFACTORY_PRIVATE_API_KEY --no-daemon
       "] # Checkout the sources, cannot use a volume because it is mounted as root
       env:
       - name: ARTIFACTORY_PRIVATE_API_KEY
