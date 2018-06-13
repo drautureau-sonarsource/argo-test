@@ -44,6 +44,8 @@ spec:
         ./gradlew build artifactoryPublish -DbuildNumber={{workflow.parameters.buildNumber}} --no-daemon --console plain
       "]
       env:
+      - name: BUILD_NUMBER
+        value: "{{workflow.parameters.buildNumber}}"
       - name: ARTIFACTORY_URL
         valueFrom:
           secretKeyRef:
